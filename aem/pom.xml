@@ -28,10 +28,10 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>org.apache.sling.dynamic.components.core</artifactId>
+    <artifactId>org.apache.sling.dynamic.components.aem</artifactId>
     <packaging>bundle</packaging>
 
-    <name>dynamicComponents - Core</name>
+    <name>dynamicComponents - AEM</name>
     <description>
         This is an empty OSGi Bundle which can be used
         to compile and deploy OSGi Services to Sling.
@@ -69,15 +69,6 @@
                 <configuration>
                     <source>7</source>
                     <target>7</target>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.sling</groupId>
-                <artifactId>maven-sling-plugin</artifactId>
-                <configuration>
-                    <slingUrl>http://${sling.host}:${sling.port}/system/console</slingUrl>
-                    <user>${sling.user}</user>
-                    <password>${sling.password}</password>
                 </configuration>
             </plugin>
         </plugins>

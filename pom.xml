@@ -419,10 +419,12 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
-<modules>  <module>core</module>
-    <module>core.example</module>
-    <module>ui.apps</module>
-    <module>ui.apps.example</module>
-    <module>all</module>
-  </modules>
+
+    <modules>
+        <module>common</module>
+        <module>core</module>
+        <module>aem</module>
+        <module>ui.apps</module>
+        <module>all</module>
+    </modules>
 </project>

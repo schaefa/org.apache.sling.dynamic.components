@@ -41,7 +41,17 @@
     <dependencies>
         <dependency>
             <groupId>${project.groupId}</groupId>
+            <artifactId>org.apache.sling.dynamic.components.common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
             <artifactId>org.apache.sling.dynamic.components.core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>org.apache.sling.dynamic.components.aem</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -63,7 +73,17 @@
                     <embeddeds>
                         <embedded>
                             <groupId>${project.groupId}</groupId>
+                            <artifactId>org.apache.sling.dynamic.components.common</artifactId>
+                            <filter>true</filter>
+                        </embedded>
+                        <embedded>
+                            <groupId>${project.groupId}</groupId>
                             <artifactId>org.apache.sling.dynamic.components.core</artifactId>
+                            <filter>true</filter>
+                        </embedded>
+                        <embedded>
+                            <groupId>${project.groupId}</groupId>
+                            <artifactId>org.apache.sling.dynamic.components.aem</artifactId>
                             <filter>true</filter>
                         </embedded>
                     </embeddeds>

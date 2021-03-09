@@ -28,10 +28,10 @@
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>org.apache.sling.dynamic.components.core</artifactId>
+    <artifactId>org.apache.sling.dynamic.components.common</artifactId>
     <packaging>bundle</packaging>
 
-    <name>dynamicComponents - Core</name>
+    <name>dynamicComponents - Common</name>
     <description>
         This is an empty OSGi Bundle which can be used
         to compile and deploy OSGi Services to Sling.
@@ -71,86 +71,14 @@
                     <target>7</target>
                 </configuration>
             </plugin>
-            <plugin>
-                <groupId>org.apache.sling</groupId>
-                <artifactId>maven-sling-plugin</artifactId>
-                <configuration>
-                    <slingUrl>http://${sling.host}:${sling.port}/system/console</slingUrl>
-                    <user>${sling.user}</user>
-                    <password>${sling.password}</password>
-                </configuration>
-            </plugin>
         </plugins>
     </build>
+
     <dependencies>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>org.apache.sling.dynamic.components.common</artifactId>
-            <version>${project.version}</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>org.osgi</groupId>
-            <artifactId>osgi.core</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.osgi</groupId>
-            <artifactId>osgi.annotation</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.osgi</groupId>
-            <artifactId>org.osgi.service.component.annotations</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.osgi</groupId>
-            <artifactId>org.osgi.service.metatype.annotations</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.osgi</groupId>
-            <artifactId>org.osgi.compendium</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>javax.servlet</groupId>
-            <artifactId>javax.servlet-api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>javax.jcr</groupId>
-            <artifactId>jcr</artifactId>
-        </dependency>
         <dependency>
             <groupId>org.apache.sling</groupId>
             <artifactId>org.apache.sling.api</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.apache.sling</groupId>
-            <artifactId>org.apache.sling.models.api</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.jackrabbit</groupId>
-            <artifactId>jackrabbit-api</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-lang3</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-        </dependency>
     </dependencies>
 
-    <!--
-        Attention: the autoInstallBundle was removed as deploying bundles directly and through a package is causing
-                   issues with updates and can prevent the latest code of a bundle being deployed.
-                   If you know what you are doing then you can use maven-sling-plugin directly from the Maven CLI.
-    -->
 </project>
