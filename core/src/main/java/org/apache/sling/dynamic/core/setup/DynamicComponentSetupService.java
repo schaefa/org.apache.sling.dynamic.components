@@ -1,4 +1,4 @@
-package org.apache.sling.dynamic.core.test;
+package org.apache.sling.dynamic.core.setup;
 
 import org.apache.sling.api.resource.LoginException;
 import org.apache.sling.api.resource.PersistenceException;
@@ -54,6 +54,10 @@ public class DynamicComponentSetupService
             name = "Additional Properties for Dynamic Components",
             description = "Dynamic Component Additional Properties in format: <name>=<property name>|<property value>")
         String[] dynamic_component_additional_properties() default "";
+        @AttributeDefinition(
+            name = "References for Dynamic Components",
+            description = "Dynamic Component Reference in format: <name>=<path>")
+        String[] dynamic_component_refs() default "";
     }
 
     public static final String DYNAMIC_COMPONENT_FOLDER_NAME = "dynamic";
@@ -102,56 +106,34 @@ public class DynamicComponentSetupService
             }
             Map<String, List<Property>> additionalProperties = new HashMap<>();
             for(String additionalProperty: configuration.dynamic_component_additional_properties()) {
-                String[] split = additionalProperty.split("=");
-                if(split.length != 2) {
-                    throw new IllegalArgumentException("Dynamic Additional Property is invalid (split on = does not yield 2 tokens): " + additionalProperty);
+                Property component = new Property(additionalProperty, "Dynamic Additional Property");
+                if(!component.isComponent()) {
+                    throw new IllegalArgumentException("Addition Properties is not a component: '" + additionalProperty + "'");
                 }
-                String componentName = split[0];
-                String temp = split[1];
-                log.info("Component Name: '{}', rest: '{}'", componentName, temp);
-                String[] temps2 = temp.split("\\|");
-                if(split.length != 2) {
-                    throw new IllegalArgumentException("Dynamic Additional Property is invalid (split on | does not yield 2 tokens): " + temp);
-                }
-                String propertyName = temps2[0];
-                String propertyValue = temps2[1];
-                log.info("Property Name: '{}', Value: '{}'", propertyName, propertyValue);
-                Property value;
-                if(propertyValue.charAt(0) == '{' && propertyValue.charAt(propertyValue.length() - 1) == '}') {
-                    String[] entries = propertyValue.substring(1, propertyValue.length() - 1).split(";");
-                    value = new Property(propertyName, Arrays.asList(entries));
-                } else {
-                    value = new Property(propertyName, propertyValue);
-                }
-                List<Property> propertyList = additionalProperties.get(componentName);
-                if(propertyList == null) {
-                    propertyList = new ArrayList<>();
-                    additionalProperties.put(componentName, propertyList);
-                }
-                propertyList.add(value);
+                addItemToListMap(additionalProperties, component);
             }
+            Map<String, List<Property>> dynamicRefs = new HashMap<>();
+            for(String ref: configuration.dynamic_component_refs()) {
+                Property component = new Property(ref, "Dynamic Ref");
+                if(!component.isComponent()) {
+                    throw new IllegalArgumentException("Dynamic Ref is not a component: '" + ref + "'");
+                }
+                addItemToListMap(dynamicRefs, component);
+            }
+            log.info("Dynamic Refs: '{}'", dynamicRefs);
             for (String dynamicComponentName : configuration.dynamic_component_names()) {
-                String[] split = dynamicComponentName.split("=");
-                if(split.length != 2) {
+                final Property dynamicComponent = new Property(dynamicComponentName, "Dynamic Component");
+                if(!dynamicComponent.isComponent()) {
                     throw new IllegalArgumentException("Dynamic Configuration Name is invalid (split on = does not yield 2 tokens): " + dynamicComponentName);
                 }
-                String name = split[0];
-                String split1 = split[1];
-                split = split1.split(":");
-                if(split.length != 2) {
-                    throw new IllegalArgumentException("Dynamic Configuration Name is invalid (split on : does not yield 2 tokens): " + split1);
-                }
-                final String title = split[0];
-                final String resourceSuperType = split[1];
-
                 Map<String, Object> props = new HashMap<String, Object>() {{
                     put("componentGroup", group);
                     put("jcr:primaryType", primaryType);
-                    put("jcr:title", title);
-                    put("sling:resourceSuperType", resourceSuperType);
+                    put("jcr:title", dynamicComponent.getName());
+                    put("sling:resourceSuperType", dynamicComponent.getValue());
                 }};
-                List<Property> propertyList = additionalProperties.get(name);
-                log.info("Component: '{}', property list: '{}'", name, propertyList);
+                List<Property> propertyList = additionalProperties.get(dynamicComponent.getComponent());
+                log.info("Component: '{}', property list: '{}'", dynamicComponent.getComponent(), propertyList);
                 if(propertyList != null) {
                     for (Property property : propertyList) {
                         if(property.isSingle()) {
@@ -163,50 +145,123 @@ public class DynamicComponentSetupService
                     }
                 }
                 log.info("Props for to be created Node: '{}'", props);
-                Resource newTarget = resourceResolver.create(target, name, props);
+                Resource newTarget = resourceResolver.create(target, dynamicComponent.getComponent(), props);
                 log.info("Newly Created Target: '{}'", newTarget);
+                // Add Dynamic Refs
+                List<Property> refs = dynamicRefs.get(dynamicComponent.getComponent());
+                if(refs != null) {
+                    for (final Property ref : refs) {
+                        Map<String, Object> refProps = new HashMap<String, Object>() {{
+                            put("jcr:primaryType", "nt:unstructured");
+                            put("jcr:title", ref.getName());
+                            put("ref", ref.getValue());
+                        }};
+                        Resource newRef = resourceResolver.create(
+                            newTarget, ref.getName(), refProps
+                        );
+                    }
+                }
             }
             resourceResolver.commit();
             log.info("Update the Dynamic Component Resource Manager with Provider Path: '{}'", target.getPath());
             dynamicComponentResourceManager.update(target.getPath());
+            log.info("Update the Dynamic Component Resource Manager done");
+//        } catch (LoginException e) {
+//            log.error("Cannot Access Resource Resolver", e);
+//        } catch (PersistenceException e) {
+//            log.error("Failed to create Dynamic Component", e);
+//        }
+//        try (ResourceResolver resourceResolver = resourceResolverFactory.getAdministrativeResourceResolver(null)) {
             // Now test the setup
             Resource button = resourceResolver.getResource(WKND_COMPONENTS_FOLDER_PATH + "/" + "button");
             log.info("Static Button: '{}'", button);
-            Resource button1 = resourceResolver.getResource(DYNAMIC_COMPONENTS_FOLDER_PATH + "/" + "button1");
+            Resource button1 = resourceResolver.getResource(WKND_COMPONENTS_FOLDER_PATH + "/" + "button1");
             log.info("Dynamic Button 1: '{}'", button1);
             Resource container = resourceResolver.getResource(WKND_COMPONENTS_FOLDER_PATH + "/" + "container");
             log.info("Static Container: '{}'", container);
-            Resource container1 = resourceResolver.getResource(DYNAMIC_COMPONENTS_FOLDER_PATH + "/" + "container1");
+            Resource container1 = resourceResolver.getResource(WKND_COMPONENTS_FOLDER_PATH + "/" + "container1");
             log.info("Dynamic Container 1: '{}'", container1);
             Iterator<Resource> i = resourceResolver.listChildren(container1.getParent());
             int index = 0;
-            while(i.hasNext()) {
+            while (i.hasNext()) {
                 log.info("{}. Entry: '{}'", index++, i.next());
             }
         } catch (LoginException e) {
-            log.error("Cannot Access Resource Resolver", e);
+            log.error("2. Cannot Access Resource Resolver", e);
         } catch (PersistenceException e) {
             log.error("Failed to create Dynamic Component", e);
         }
     }
 
+    private void addItemToListMap(Map<String, List<Property>> target, Property value) {
+        String componentName = value.getComponent();
+        List<Property> propertyList = target.get(componentName);
+        if(propertyList == null) {
+            propertyList = new ArrayList<>();
+            target.put(componentName, propertyList);
+        }
+        propertyList.add(value);
+    }
+
+    public static final String EQUALS = "=";
+    public static final String VERTICAL_LINE = "|";
+    public static final char OPENING_MULTIPLE = '{';
+    public static final char CLOSING_MULTIPLE = '}';
+    public static final String MULTI_SEPARATOR = ";";
+
     private static class Property {
+        private String component;
         private String name;
-        private String value;
-        private List<String> values;
+        private List<String> values = new ArrayList<>();
 
-        public Property(String name, String value) {
-            this.name = name;
-            this.value = value;
+        public Property(String line, String messageTitle) {
+            String[] split = line.split(EQUALS);
+            if(split.length != 2) {
+                throw new IllegalArgumentException(messageTitle + " is invalid (split on '" + EQUALS + "' does not yield 2 tokens): " + line);
+            }
+            String tempName = split[0];
+            String tempValue = split[1];
+            int index = tempValue.indexOf(VERTICAL_LINE);
+            if( index > 0 && index < tempValue.length() - 1) {
+                String[] splitTemp = tempValue.split("\\" + VERTICAL_LINE);
+                this.component = tempName;
+                this.name = splitTemp[0];
+                tempValue = splitTemp[1];
+                if(tempValue.charAt(0) == OPENING_MULTIPLE && tempValue.charAt(tempValue.length() - 1) == CLOSING_MULTIPLE) {
+                    tempValue = tempValue.substring(1, tempValue.length() - 1);
+                    splitTemp = tempValue.split(MULTI_SEPARATOR);
+                    values.addAll(Arrays.asList(splitTemp));
+                } else {
+                    values.add(tempValue);
+                }
+            } else {
+                this.name = tempName;
+                if(tempValue.charAt(0) == OPENING_MULTIPLE && tempValue.charAt(tempValue.length() - 1) == CLOSING_MULTIPLE) {
+                    tempValue = tempValue.substring(1, tempValue.length() - 1);
+                    String[] splitTemp = tempValue.split(MULTI_SEPARATOR);
+                    values.addAll(Arrays.asList(splitTemp));
+                } else {
+                    values.add(tempValue);
+                }
+            }
         }
 
-        public Property(String name, List<String> values) {
-            this.name = name;
-            this.values = values;
-        }
+//        public Property(String name, String value) {
+//            this.name = name;
+//            this.value = value;
+//        }
+//
+//        public Property(String name, List<String> values) {
+//            this.name = name;
+//            this.values = values;
+//        }
 
-        public boolean isSingle() {
-            return value != null;
+        public boolean isComponent() { return component != null; }
+        public boolean isEmpty() { return values.isEmpty(); }
+        public boolean isSingle() { return values.size() == 1; }
+
+        public String getComponent() {
+            return component;
         }
 
         public String getName() {
@@ -214,7 +269,7 @@ public class DynamicComponentSetupService
         }
 
         public String getValue() {
-            return value;
+            return values.isEmpty() ? null : values.get(0);
         }
 
         public List<String> getValues() {
@@ -224,8 +279,8 @@ public class DynamicComponentSetupService
         @Override
         public String toString() {
             return "Property{" +
-                "name='" + name + '\'' +
-                ", value='" + value + '\'' +
+                "component-name='" + component + '\'' +
+                ", name='" + name + '\'' +
                 ", values=" + values +
                 '}';
         }

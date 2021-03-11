@@ -141,9 +141,7 @@ public class DynamicComponentFilter
             }
             component = "\"" + dynamicPath.substring(index + 1) + "\": {"
                 + "\"path\":\"" + dynamicPath + "\"";
-//            Resource provided = resourceResolver.getResource(entry.getValue());
             PropertyHierarchy propertyHierarchy = entry.getValue();
-//            ValueMap propertyHierarchy = provided.getValueMap();
             if(propertyHierarchy.containsKey("componentGroup")) {
                 component += ",\"group\":\"" + propertyHierarchy.get("componentGroup", "weird-group") + "\"";
             }
@@ -199,7 +197,7 @@ public class DynamicComponentFilter
             byte[] bytes = content.getBytes();
             int test = content.getBytes().length;
             gzipOutputStream.write(bytes, 0, bytes.length);
-            LOGGER.info("Content Length: {}", test);
+            LOGGER.debug("Content Length: {}", test);
             gzipOutputStream.close();
             return boas.toByteArray();
         }
@@ -253,15 +251,13 @@ public class DynamicComponentFilter
     }
 
     private static class PropertyHierarchy {
-//        private Resource source;
         private String providedComponentPath;
         private Map<String, Object> hierarchicalProperties = new HashMap<>();
 
         public PropertyHierarchy(Resource source) {
-//            this.source = resource;
             providedComponentPath = source.getPath();
             String[] searchPaths = source.getResourceResolver().getSearchPath();
-            LOGGER.info("Search Paths: '{}'", Arrays.asList(searchPaths));
+            LOGGER.trace("Search Paths: '{}'", Arrays.asList(searchPaths));
             traverse(source, searchPaths);
         }
 
@@ -292,7 +288,7 @@ public class DynamicComponentFilter
         }
 
         private void traverse(Resource resource, String[] searchPaths) {
-            LOGGER.info("Traverse resource: '{}'", resource);
+            LOGGER.debug("Traverse resource: '{}'", resource);
             ValueMap properties = resource.getValueMap();
             if(properties != null) {
                 for(Entry<String,Object> entry: properties.entrySet()) {
@@ -302,14 +298,14 @@ public class DynamicComponentFilter
                 }
                 String superType = properties.get(SLING_RESOURCE_SUPER_TYPE_PROPERTY, String.class);
                 if(superType != null) {
-                    LOGGER.info("Super Type found: '{}'", superType);
+                    LOGGER.debug("Super Type found: '{}'", superType);
                     Resource superResource = null;
                     if(!superType.startsWith("/")) {
                         for(String searchPath: searchPaths) {
                             String path = searchPath + superType;
                             superResource = resource.getResourceResolver().getResource(path);
                             if(superResource != null) {
-                                LOGGER.info("Found Super Type ('{}'): '{}'", path, superResource);
+                                LOGGER.debug("Found Super Type ('{}'): '{}'", path, superResource);
                                 break;
                             }
                         }

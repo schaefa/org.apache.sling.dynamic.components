@@ -12,5 +12,5 @@ public interface DynamicComponentResourceProvider {
 
     boolean isActive();
     String getTargetRootPath();
-    List<String> getProvidedComponentPaths();
+//    List<String> getProvidedComponentPaths();
 }
