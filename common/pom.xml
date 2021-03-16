@@ -60,6 +60,9 @@
                             Private-Package,
                             Include-Resource
                         </_removeheaders>
+                        <Sling-Initial-Content>
+                            SLING-CONTENT/apps/dynamicComponents2;path:=/apps/dynamicComponents2;overwrite:=true;overwriteProperties:=true
+                        </Sling-Initial-Content>
                     </instructions>
                 </configuration>
             </plugin>

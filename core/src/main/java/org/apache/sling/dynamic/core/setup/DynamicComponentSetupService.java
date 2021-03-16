@@ -6,16 +6,24 @@ import org.apache.sling.api.resource.Resource;
 import org.apache.sling.api.resource.ResourceResolver;
 import org.apache.sling.api.resource.ResourceResolverFactory;
 import org.apache.sling.dynamic.core.DynamicComponentResourceManager;
+import org.apache.sling.serviceusermapping.ServiceUserMapped;
 import org.osgi.framework.BundleContext;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Reference;
+import org.osgi.service.component.annotations.ReferencePolicyOption;
 import org.osgi.service.metatype.annotations.AttributeDefinition;
 import org.osgi.service.metatype.annotations.Designate;
 import org.osgi.service.metatype.annotations.ObjectClassDefinition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.jcr.RepositoryException;
+import javax.jcr.Session;
+import javax.jcr.UnsupportedRepositoryOperationException;
+import javax.jcr.observation.Event;
+import javax.jcr.observation.EventIterator;
+import javax.jcr.observation.EventListener;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -23,17 +31,39 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
+import static org.apache.sling.dynamic.common.Constants.CLOSING_MULTIPLE;
+import static org.apache.sling.dynamic.common.Constants.COMPONENT_GROUP;
+import static org.apache.sling.dynamic.common.Constants.DYNAMIC_COMPONENTS_SERVICE_USER;
+import static org.apache.sling.dynamic.common.Constants.DYNAMIC_COMPONENT_FOLDER_NAME;
+import static org.apache.sling.dynamic.common.Constants.EQUALS;
+import static org.apache.sling.dynamic.common.Constants.JCR_PRIMARY_TYPE;
+import static org.apache.sling.dynamic.common.Constants.JCR_TITLE;
+import static org.apache.sling.dynamic.common.Constants.MULTI_SEPARATOR;
+import static org.apache.sling.dynamic.common.Constants.NT_UNSTRUCTURED;
+import static org.apache.sling.dynamic.common.Constants.OPENING_MULTIPLE;
+import static org.apache.sling.dynamic.common.Constants.REFERENCE_PROPERTY_NAME;
+import static org.apache.sling.dynamic.common.Constants.REP_POLICY;
+import static org.apache.sling.dynamic.common.Constants.SLING_FOLDER;
+import static org.apache.sling.dynamic.common.Constants.SLING_RESOURCE_SUPER_TYPE_PROPERTY;
+import static org.apache.sling.dynamic.common.Constants.VERTICAL_LINE;
+
 @Component(
-    service= DynamicComponentSetup.class,
+    service= { DynamicComponentSetup.class, EventListener.class },
     immediate = true
 )
 @Designate(ocd = DynamicComponentSetupService.Configuration.class, factory = true)
 public class DynamicComponentSetupService
-    implements DynamicComponentSetup {
+    implements DynamicComponentSetup, EventListener
+{
+
     @ObjectClassDefinition(
         name = "Dynamic Component Setup",
         description = "Configuration of the Setup for Dynamic Component Resource Provider")
     public @interface Configuration {
+        @AttributeDefinition(
+            name = "Dynamic Root Path",
+            description = "Dynamic Location Root Path")
+        String dynamic_component_target_path() default "/apps/wknd/components";
         @AttributeDefinition(
             name = "Dynamic Root Path",
             description = "Dynamic Location Root Path")
@@ -60,11 +90,6 @@ public class DynamicComponentSetupService
         String[] dynamic_component_refs() default "";
     }
 
-    public static final String DYNAMIC_COMPONENT_FOLDER_NAME = "dynamic";
-
-    private static final String WKND_COMPONENTS_FOLDER_PATH = "/apps/wknd/components";
-    private static final String DYNAMIC_COMPONENTS_FOLDER_PATH = "/apps/dynamicComponents/components";
-
     private final Logger log = LoggerFactory.getLogger(getClass());
 
     @Reference
@@ -73,16 +98,25 @@ public class DynamicComponentSetupService
     @Reference
     DynamicComponentResourceManager dynamicComponentResourceManager;
 
+    // Make sure that the Service User Mapping is available before obtaining the Service Resource Resolver
+    @Reference(policyOption= ReferencePolicyOption.GREEDY)
+    private ServiceUserMapped serviceUserMapped;
+
     private BundleContext bundleContext;
+    private String rootPath;
+    private String targetRootPath;
 
     @Activate
     private void activate(BundleContext bundleContext, Configuration configuration) {
         log.info("Activate Started, bundle context: '{}'", bundleContext);
         this.bundleContext = bundleContext;
-        final String rootPath = configuration.dynamic_component_root_path();
+        rootPath = configuration.dynamic_component_root_path();
+        targetRootPath = configuration.dynamic_component_target_path();
         final String group = configuration.dynamic_component_group();
         final String primaryType = configuration.dynamic_component_primary_type();
-        try (ResourceResolver resourceResolver = resourceResolverFactory.getAdministrativeResourceResolver(null)) {
+        try (ResourceResolver resourceResolver = resourceResolverFactory.getServiceResourceResolver(
+            new HashMap<String, Object>() {{ put(ResourceResolverFactory.SUBSERVICE, DYNAMIC_COMPONENTS_SERVICE_USER); }}
+        )) {
             Resource root = resourceResolver.getResource(rootPath);
             if(root == null) {
                 throw new IllegalArgumentException("Root Path: '" + rootPath + "' does not exist");
@@ -91,7 +125,7 @@ public class DynamicComponentSetupService
             log.info("Dynamic Folder looked up: '{}'", target);
             if(target == null) {
                 target = resourceResolver.create(root, DYNAMIC_COMPONENT_FOLDER_NAME, new HashMap<String, Object>() {{
-                        put("jcr:primaryType", "sling:Folder");
+                        put(JCR_PRIMARY_TYPE, SLING_FOLDER);
                     }}
                 );
                 resourceResolver.commit();
@@ -100,7 +134,11 @@ public class DynamicComponentSetupService
                 // Remove any existing children
                 Iterator<Resource> i = target.listChildren();
                 while(i.hasNext()) {
-                    resourceResolver.delete(i.next());
+                    Resource child = i.next();
+                    if(!child.getName().equals(REP_POLICY)) {
+                        log.info("Delete Existing Resource: '{}'", child);
+                        resourceResolver.delete(child);
+                    }
                 }
                 resourceResolver.commit();
             }
@@ -127,10 +165,10 @@ public class DynamicComponentSetupService
                     throw new IllegalArgumentException("Dynamic Configuration Name is invalid (split on = does not yield 2 tokens): " + dynamicComponentName);
                 }
                 Map<String, Object> props = new HashMap<String, Object>() {{
-                    put("componentGroup", group);
-                    put("jcr:primaryType", primaryType);
-                    put("jcr:title", dynamicComponent.getName());
-                    put("sling:resourceSuperType", dynamicComponent.getValue());
+                    put(COMPONENT_GROUP, group);
+                    put(JCR_PRIMARY_TYPE, primaryType);
+                    put(JCR_TITLE, dynamicComponent.getName());
+                    put(SLING_RESOURCE_SUPER_TYPE_PROPERTY, dynamicComponent.getValue());
                 }};
                 List<Property> propertyList = additionalProperties.get(dynamicComponent.getComponent());
                 log.info("Component: '{}', property list: '{}'", dynamicComponent.getComponent(), propertyList);
@@ -152,9 +190,9 @@ public class DynamicComponentSetupService
                 if(refs != null) {
                     for (final Property ref : refs) {
                         Map<String, Object> refProps = new HashMap<String, Object>() {{
-                            put("jcr:primaryType", "nt:unstructured");
-                            put("jcr:title", ref.getName());
-                            put("ref", ref.getValue());
+                            put(JCR_PRIMARY_TYPE, NT_UNSTRUCTURED);
+                            put(JCR_TITLE, ref.getName());
+                            put(REFERENCE_PROPERTY_NAME, ref.getValue());
                         }};
                         Resource newRef = resourceResolver.create(
                             newTarget, ref.getName(), refProps
@@ -163,23 +201,60 @@ public class DynamicComponentSetupService
                 }
             }
             resourceResolver.commit();
-            log.info("Update the Dynamic Component Resource Manager with Provider Path: '{}'", target.getPath());
+            Resource componentResource = resourceResolver.getResource(targetRootPath);
+            if(componentResource == null) {
+                Session session = resourceResolver.adaptTo(Session.class);
+                if (session != null) {
+                    final int eventTypes = Event.NODE_ADDED;
+                    final boolean isDeep = false;
+                    final boolean noLocal = true;
+                    session.getWorkspace().getObservationManager().addEventListener(
+                        this, eventTypes, targetRootPath,
+                        isDeep, null, null, noLocal
+                    );
+                } else {
+                    log.warn("Resource Resolver could not be adapted to Session");
+                }
+            } else {
+                targetAvailable();
+            }
+        } catch (LoginException e) {
+            log.error("2. Cannot Access Resource Resolver", e);
+        } catch (PersistenceException e) {
+            log.error("Failed to create Dynamic Component", e);
+        } catch (UnsupportedRepositoryOperationException e) {
+            log.error("Could not register Event Listener", e);
+        } catch (RepositoryException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public void onEvent(EventIterator events) {
+        targetAvailable();
+    }
+
+    private void targetAvailable() {
+        try (ResourceResolver resourceResolver = resourceResolverFactory.getServiceResourceResolver(
+            new HashMap<String, Object>() {{ put(ResourceResolverFactory.SUBSERVICE, DYNAMIC_COMPONENTS_SERVICE_USER); }}
+        )) {
+            Resource root = resourceResolver.getResource(rootPath);
+            if (root == null) {
+                throw new IllegalArgumentException("Root Path: '" + rootPath + "' does not exist");
+            }
+            Resource target = root.getChild(DYNAMIC_COMPONENT_FOLDER_NAME);
+            log.info("Update the Dynamic Component Resource Manager with Provider Path: '{}'", target);
             dynamicComponentResourceManager.update(target.getPath());
             log.info("Update the Dynamic Component Resource Manager done");
-//        } catch (LoginException e) {
-//            log.error("Cannot Access Resource Resolver", e);
-//        } catch (PersistenceException e) {
-//            log.error("Failed to create Dynamic Component", e);
-//        }
-//        try (ResourceResolver resourceResolver = resourceResolverFactory.getAdministrativeResourceResolver(null)) {
+
             // Now test the setup
-            Resource button = resourceResolver.getResource(WKND_COMPONENTS_FOLDER_PATH + "/" + "button");
+            Resource button = resourceResolver.getResource(targetRootPath + "/" + "button");
             log.info("Static Button: '{}'", button);
-            Resource button1 = resourceResolver.getResource(WKND_COMPONENTS_FOLDER_PATH + "/" + "button1");
+            Resource button1 = resourceResolver.getResource(targetRootPath + "/" + "button1");
             log.info("Dynamic Button 1: '{}'", button1);
-            Resource container = resourceResolver.getResource(WKND_COMPONENTS_FOLDER_PATH + "/" + "container");
+            Resource container = resourceResolver.getResource(targetRootPath + "/" + "container");
             log.info("Static Container: '{}'", container);
-            Resource container1 = resourceResolver.getResource(WKND_COMPONENTS_FOLDER_PATH + "/" + "container1");
+            Resource container1 = resourceResolver.getResource(targetRootPath + "/" + "container1");
             log.info("Dynamic Container 1: '{}'", container1);
             Iterator<Resource> i = resourceResolver.listChildren(container1.getParent());
             int index = 0;
@@ -188,8 +263,6 @@ public class DynamicComponentSetupService
             }
         } catch (LoginException e) {
             log.error("2. Cannot Access Resource Resolver", e);
-        } catch (PersistenceException e) {
-            log.error("Failed to create Dynamic Component", e);
         }
     }
 
@@ -202,12 +275,6 @@ public class DynamicComponentSetupService
         }
         propertyList.add(value);
     }
-
-    public static final String EQUALS = "=";
-    public static final String VERTICAL_LINE = "|";
-    public static final char OPENING_MULTIPLE = '{';
-    public static final char CLOSING_MULTIPLE = '}';
-    public static final String MULTI_SEPARATOR = ";";
 
     private static class Property {
         private String component;
@@ -245,16 +312,6 @@ public class DynamicComponentSetupService
                 }
             }
         }
-
-//        public Property(String name, String value) {
-//            this.name = name;
-//            this.value = value;
-//        }
-//
-//        public Property(String name, List<String> values) {
-//            this.name = name;
-//            this.values = values;
-//        }
 
         public boolean isComponent() { return component != null; }
         public boolean isEmpty() { return values.isEmpty(); }

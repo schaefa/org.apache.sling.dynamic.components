@@ -2,6 +2,7 @@ package org.apache.sling.dynamic.core;
 
 import org.apache.sling.api.resource.Resource;
 import org.apache.sling.api.resource.ResourceResolver;
+import org.apache.sling.api.resource.ValueMap;
 import org.apache.sling.spi.resource.provider.ProviderContext;
 import org.apache.sling.spi.resource.provider.ResolveContext;
 import org.apache.sling.spi.resource.provider.ResourceContext;
@@ -19,7 +20,11 @@ import java.util.Iterator;
 import java.util.List;
 
 import static org.apache.sling.api.resource.Resource.RESOURCE_TYPE_NON_EXISTING;
-import static org.apache.sling.dynamic.core.DynamicComponent.createSyntheticFromResource;
+import static org.apache.sling.dynamic.common.Constants.LABEL;
+import static org.apache.sling.dynamic.common.Constants.REFERENCE_PROPERTY_NAME;
+import static org.apache.sling.dynamic.common.Constants.REP_POLICY;
+import static org.apache.sling.dynamic.common.Constants.SlASH;
+import static org.apache.sling.dynamic.core.DynamicComponentImpl.createSyntheticFromResource;
 import static org.osgi.framework.Constants.SERVICE_DESCRIPTION;
 import static org.osgi.framework.Constants.SERVICE_VENDOR;
 
@@ -39,7 +44,6 @@ public class DynamicComponentResourceProviderHandler
 
     private String targetRootPath;
     private String providerRootPath;
-//    private List<String> providedComponentPaths;
     private boolean active;
 
     //---------- Service Registration
@@ -50,7 +54,7 @@ public class DynamicComponentResourceProviderHandler
         log.info("Target Root Path: '{}', Provider Root Paths: '{}'", targetRootPath, providerRootPath);
 
         final Dictionary<String, Object> props = new Hashtable<>();
-        props.put("label", "Dynamic Component Resource: '" + targetRootPath + "'");
+        props.put(LABEL, "Dynamic Component Resource: '" + targetRootPath + "'");
         props.put(SERVICE_DESCRIPTION, "Provides the Dynamic Component for '" + targetRootPath + "' resources as synthetic resources");
         props.put(SERVICE_VENDOR, "The Apache Software Foundation");
         props.put(ResourceProvider.PROPERTY_ROOT, targetRootPath);
@@ -86,20 +90,15 @@ public class DynamicComponentResourceProviderHandler
         return targetRootPath;
     }
 
-//    @Override
-//    public List<String> getProvidedComponentPaths() {
-//        return providedComponentPaths;
-//    }
-
     @Override
     public Resource getResource(ResolveContext ctx, String path, ResourceContext resourceContext, Resource parent) {
         ResourceResolver resourceResolver = ctx.getResourceResolver();
         log.info("Get Resource, path: '{}', parent: '{}', provider root: '{}'", path, parent, providerRootPath);
         String resourcePath;
-        if(path.startsWith("/")) {
+        if(path.startsWith(SlASH)) {
             resourcePath = path;
         } else {
-            resourcePath = parent.getPath() + "/" + path;
+            resourcePath = parent.getPath() + SlASH + path;
         }
         Resource answer = null;
         if(resourcePath.startsWith(providerRootPath)) {
@@ -120,7 +119,7 @@ public class DynamicComponentResourceProviderHandler
                 int index = resourcePath.lastIndexOf('/');
                 if (index > 0 && index < (resourcePath.length() - 1)) {
                     String name = resourcePath.substring(index + 1);
-                    String providedPath = providerRootPath + "/" + name;
+                    String providedPath = providerRootPath + SlASH + name;
                     Resource source = resourceResolver.getResource(providedPath);
                     if (source != null && !source.isResourceType(RESOURCE_TYPE_NON_EXISTING)) {
                         answer = createSyntheticFromResource(resourceResolver, source, resourcePath);
@@ -145,14 +144,40 @@ public class DynamicComponentResourceProviderHandler
         } else if(resourcePath.startsWith(targetRootPath)) {
             Iterator<Resource> i = ctx.getParentResourceProvider().listChildren(ctx.getParentResolveContext(), parent);
             List<Resource> items = new ArrayList<>();
-            while(i.hasNext()) {
-                items.add(i.next());
+            if(i != null) {
+                while (i.hasNext()) {
+                    items.add(i.next());
+                }
             }
-            Resource provider = resourceResolver.getResource(providerRootPath);
-            i = provider.listChildren();
-            while(i.hasNext()) {
-                Resource child = i.next();
-                items.add(createSyntheticFromResource(resourceResolver, child, targetRootPath + "/" + child.getName()));
+            String postfix = resourcePath.substring(targetRootPath.length());
+            if(!postfix.isEmpty() && postfix.charAt(0) == '/') {
+                postfix = postfix.substring(1);
+            }
+            String targetPath = providerRootPath + SlASH + postfix;
+            Resource provider = resourceResolver.getResource(targetPath);
+            log.info("Provider, Path: '{}', Resource: '{}'", targetPath, provider);
+            if(provider != null) {
+                i = provider.listChildren();
+                while (i.hasNext()) {
+                    Resource child = i.next();
+                    // Ignore Policy Nodes
+                    if(child.getName().equals(REP_POLICY)) {
+                        continue;
+                    }
+                    // Check if this entry is a reference and if so get that one instead
+                    ValueMap properties = child.getValueMap();
+                    String referencePath = properties.get(REFERENCE_PROPERTY_NAME, String.class);
+                    if(referencePath != null && !referencePath.isEmpty()) {
+                        Resource reference = resourceResolver.getResource(referencePath);
+                        if(reference != null) {
+                            items.add(reference);
+                        } else {
+                            log.warn("Reference: '{}' provided by does not resolve to a resource", referencePath);
+                        }
+                    } else {
+                        items.add(createSyntheticFromResource(resourceResolver, child, targetRootPath + SlASH + child.getName()));
+                    }
+                }
             }
             answer = items.iterator();
         } else {

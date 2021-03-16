@@ -60,6 +60,12 @@
             <version>${project.version}</version>
             <type>content-package</type>
         </dependency>
+        <dependency>
+            <groupId>com.adobe.aem.guides</groupId>
+            <artifactId>aem-guides-wknd.all</artifactId>
+            <version>0.2.0</version>
+            <type>content-package</type>
+        </dependency>
     </dependencies>
 
     <build>
@@ -88,6 +94,11 @@
                         </embedded>
                     </embeddeds>
                     <subPackages>
+                        <subPackage>
+                            <groupId>com.adobe.aem.guides</groupId>
+                            <artifactId>aem-guides-wknd.all</artifactId>
+                            <filter>true</filter>
+                        </subPackage>
                         <subPackage>
                             <groupId>${project.groupId}</groupId>
                             <artifactId>org.apache.sling.dynamic.components.ui.apps</artifactId>

@@ -6,12 +6,14 @@ import org.apache.sling.api.resource.ResourceResolver;
 import org.apache.sling.api.resource.ResourceResolverFactory;
 import org.apache.sling.api.resource.ValueMap;
 import org.apache.sling.dynamic.common.DynamicComponentFilterNotifier;
+import org.apache.sling.serviceusermapping.ServiceUserMapped;
 import org.osgi.framework.BundleContext;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.ConfigurationPolicy;
 import org.osgi.service.component.annotations.Deactivate;
 import org.osgi.service.component.annotations.Reference;
+import org.osgi.service.component.annotations.ReferencePolicyOption;
 import org.osgi.service.metatype.annotations.AttributeDefinition;
 import org.osgi.service.metatype.annotations.Designate;
 import org.osgi.service.metatype.annotations.ObjectClassDefinition;
@@ -21,6 +23,10 @@ import org.slf4j.LoggerFactory;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+
+import static org.apache.sling.dynamic.common.Constants.DYNAMIC_COMPONENTS_SERVICE_USER;
+import static org.apache.sling.dynamic.common.Constants.JCR_PRIMARY_TYPE;
+import static org.apache.sling.dynamic.common.Constants.REP_POLICY;
 
 /**
  * This class will register all available Tenant Resource
@@ -51,6 +57,10 @@ public class DynamicComponentResourceManagerService
     @Reference
     private DynamicComponentFilterNotifier dynamicComponentFilterNotifier;
 
+    // Make sure that the Service User Mapping is available before obtaining the Service Resource Resolver
+    @Reference(policyOption= ReferencePolicyOption.GREEDY)
+    private ServiceUserMapped serviceUserMapped;
+
     private final Logger log = LoggerFactory.getLogger(getClass());
 
     private Map<String, DynamicComponentResourceProvider> registeredServices = new HashMap<>();
@@ -66,7 +76,9 @@ public class DynamicComponentResourceManagerService
     }
 
     public void update(String dynamicProviderPath) {
-        try (ResourceResolver resourceResolver = resourceResolverFactory.getAdministrativeResourceResolver(null)) {
+        try (ResourceResolver resourceResolver = resourceResolverFactory.getServiceResourceResolver(
+            new HashMap<String, Object>() {{ put(ResourceResolverFactory.SUBSERVICE, DYNAMIC_COMPONENTS_SERVICE_USER); }}
+        )) {
             Resource dynamicProvider = resourceResolver.getResource(dynamicProviderPath);
             Resource dynamicTarget = resourceResolver.getResource(dynamicTargetPath);
             log.info("Dynamic Resource Provider: '{}', Target: '{}'", dynamicProvider, dynamicTarget);
@@ -81,23 +93,18 @@ public class DynamicComponentResourceManagerService
             Iterator<Resource> i = dynamicProvider.listChildren();
             while(i.hasNext()) {
                 Resource provided = i.next();
+                String componentName = provided.getName();
+                if(componentName.equals(REP_POLICY)) {
+                    continue;
+                }
                 log.info("Provided Dynamic: '{}'", provided);
                 ValueMap childProperties = provided.getValueMap();
-                String primaryType = childProperties.get("jcr:primaryType", String.class);
-                String componentName = provided.getName();
+                String primaryType = childProperties.get(JCR_PRIMARY_TYPE, String.class);
                 log.info("Dynamic Child Source: '{}', Primary Type: '{}'", componentName, primaryType);
                 if(componentName != null && !componentName.isEmpty()) {
                     dynamicComponentFilterNotifier.addDynamicComponent(
-                         dynamicTargetPath + '/' + componentName, provided
+                        dynamicTargetPath + '/' + componentName, provided
                     );
-//                    eventAdmin.postEvent(
-//                        new Event(
-//                            new HashMap<String, Object>() {{
-//                                Event.NODE_ADDED
-//                            }}
-//                        )
-//                    );
-//                    create = true;
                 }
             }
         } catch (LoginException e) {

@@ -1,0 +1,7 @@
+{
+  "jcr:primaryType": "sling:OsgiConfig",
+  "user.mapping": [
+    "org.apache.sling.dynamic.components.core:dynamic-serviceuser=dynamic-serviceuser",
+    "org.apache.sling.dynamic.components.aem:dynamic-serviceuser=dynamic-serviceuser"
+  ]
+}

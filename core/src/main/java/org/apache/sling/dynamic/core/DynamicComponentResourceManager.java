@@ -1,6 +1,7 @@
 package org.apache.sling.dynamic.core;
 
 public interface DynamicComponentResourceManager {
+
     /**
      * Whenever a Dynamic Provider Folder is ready to be handled
      * this method is called to create the Dynamic Components

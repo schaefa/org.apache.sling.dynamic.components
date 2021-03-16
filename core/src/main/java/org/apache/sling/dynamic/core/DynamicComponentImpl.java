@@ -6,6 +6,7 @@ import org.apache.sling.api.resource.ResourceResolver;
 import org.apache.sling.api.resource.SyntheticResource;
 import org.apache.sling.api.resource.ValueMap;
 import org.apache.sling.api.wrappers.ValueMapDecorator;
+import org.apache.sling.dynamic.common.DynamicComponent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,12 +19,13 @@ import java.util.Map.Entry;
 
 import static org.apache.sling.dynamic.common.Constants.SLING_RESOURCE_SUPER_TYPE_PROPERTY;
 
-public class DynamicComponent
+public class DynamicComponentImpl
     extends SyntheticResource
+    implements DynamicComponent
 {
     private static List<String> IGNORED_ATTRIBUTES = new ArrayList<>(Arrays.asList("jcr:created", SLING_RESOURCE_SUPER_TYPE_PROPERTY));
 
-    private static final Logger log = LoggerFactory.getLogger(DynamicComponent.class);
+    private static final Logger log = LoggerFactory.getLogger(DynamicComponentImpl.class);
 
     /**
      * Creates a Resource that adds a Resource from a given location (source)
@@ -34,7 +36,7 @@ public class DynamicComponent
      * @param targetPath Path of the new, dynamic location of the resource
      * @return The Synthetic Resource that will provide the Dynamic Resource
      */
-    public static Resource createSyntheticFromResource(ResourceResolver resourceResolver, Resource source, String targetPath) {
+    public static DynamicComponent createSyntheticFromResource(ResourceResolver resourceResolver, Resource source, String targetPath) {
         ValueMap properties = source.getValueMap();
         Map<String,String> parameters = new HashMap<>();
         String resourceSuperType = source.getResourceSuperType();
@@ -48,7 +50,7 @@ public class DynamicComponent
         metadata.setResolutionPath(targetPath);
         metadata.setResolutionPathInfo(targetPath);
         metadata.setCreationTime(System.currentTimeMillis());
-        return new DynamicComponent(
+        return new DynamicComponentImpl(
             resourceResolver,
             metadata,
             source.getResourceType(),
@@ -56,12 +58,12 @@ public class DynamicComponent
         );
     }
 
-    public DynamicComponent(ResourceResolver resourceResolver, String path, String resourceType, String resourceSuperType) {
+    public DynamicComponentImpl(ResourceResolver resourceResolver, String path, String resourceType, String resourceSuperType) {
         super(resourceResolver, path, resourceType);
         this.resourceSuperType = resourceSuperType;
     }
 
-    public DynamicComponent(ResourceResolver resourceResolver, ResourceMetadata rm, String resourceType, String resourceSuperType) {
+    public DynamicComponentImpl(ResourceResolver resourceResolver, ResourceMetadata rm, String resourceType, String resourceSuperType) {
         super(resourceResolver, rm, resourceType);
         this.resourceSuperType = resourceSuperType;
     }

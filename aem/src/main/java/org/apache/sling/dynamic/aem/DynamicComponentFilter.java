@@ -3,13 +3,20 @@ package org.apache.sling.dynamic.aem;
 import org.apache.sling.api.SlingHttpServletRequest;
 import org.apache.sling.api.SlingHttpServletResponse;
 import org.apache.sling.api.request.RequestPathInfo;
+import org.apache.sling.api.resource.LoginException;
 import org.apache.sling.api.resource.Resource;
 import org.apache.sling.api.resource.ResourceResolver;
+import org.apache.sling.api.resource.ResourceResolverFactory;
 import org.apache.sling.api.resource.ValueMap;
 import org.apache.sling.api.wrappers.SlingHttpServletResponseWrapper;
+import org.apache.sling.dynamic.common.DynamicComponent;
 import org.apache.sling.dynamic.common.DynamicComponentFilterNotifier;
+import org.apache.sling.serviceusermapping.ServiceUserMapped;
 import org.osgi.framework.Constants;
+import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
+import org.osgi.service.component.annotations.Reference;
+import org.osgi.service.component.annotations.ReferencePolicyOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -27,14 +34,17 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.io.UnsupportedEncodingException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
-import static org.apache.sling.dynamic.common.Constants.SLING_RESOURCE_SUPER_TYPE_PROPERTY;
+import static org.apache.sling.dynamic.common.Constants.DYNAMIC_COMPONENTS_SERVICE_USER;
 
 @Component(
     name = "Dynamic Component Filter",
@@ -51,12 +61,30 @@ public class DynamicComponentFilter
 {
     public static final Logger LOGGER = LoggerFactory.getLogger(DynamicComponentFilter.class);
 
-    private Map<String,PropertyHierarchy> dynamicToProvideComponents = new HashMap<>();
+    private Map<String,Resource> targetToSourceMap = new HashMap<>();
+    private Map<String,DynamicComponentMapper> dynamicToProvideComponents = new HashMap<>();
+
+    private AtomicBoolean changes = new AtomicBoolean(true);
+    private String dynamicOutput;
 
     public DynamicComponentFilter() {
         LOGGER.info("DC Filter created");
     }
 
+    @Reference
+    private ResourceResolverFactory resourceResolverFactory;
+    // Make sure that the Service User Mapping is available before obtaining the Service Resource Resolver
+    @Reference(policyOption= ReferencePolicyOption.GREEDY)
+    private ServiceUserMapped serviceUserMapped;
+
+    @Activate
+    public void activate() throws LoginException {
+        try (ResourceResolver resourceResolver = resourceResolverFactory.getServiceResourceResolver(
+            new HashMap<String, Object>() {{ put(ResourceResolverFactory.SUBSERVICE, DYNAMIC_COMPONENTS_SERVICE_USER); }}
+        )) {
+            DynamicComponentMapper.searchPaths = resourceResolver.getSearchPath();
+        }
+    }
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
         LOGGER.info("DC Filter Initialized: '{}'", filterConfig);
@@ -66,7 +94,7 @@ public class DynamicComponentFilter
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
         LOGGER.info("DC Filter called");
         // Wrap the Response to catch the output so that we can later add out part to the output
-        if (request instanceof SlingHttpServletRequest && response instanceof SlingHttpServletResponse) {
+        if (!dynamicToProvideComponents.isEmpty() && request instanceof SlingHttpServletRequest && response instanceof SlingHttpServletResponse) {
             // Only support JSon request
             final SlingHttpServletRequest httpRequest = (SlingHttpServletRequest) request;
             final SlingHttpServletResponse httpResponse = (SlingHttpServletResponse) response;
@@ -93,14 +121,6 @@ public class DynamicComponentFilter
                     public void setContentLength(int len) {
                         // Ignore this
                         LOGGER.info("Ignored Content Length set to: {}", len);
-//                        super.setContentLength(len);
-                    }
-
-                    @Override
-                    public void setContentLengthLong(long len) {
-                        // Ignore this
-                        LOGGER.info("Ignored Content Length Long set to: {}", len);
-//                        super.setContentLengthLong(len);
                     }
                 };
                 chain.doFilter(request, wrapper);
@@ -109,8 +129,11 @@ public class DynamicComponentFilter
                 String content = decompress(bytes);
                 char last = content.charAt(content.length() - 1);
                 if(last == '}') {
+                    if (changes.getAndSet(false)) {
+                        dynamicOutput = compileDynamicComponentsOutput();
+                    }
                     content = content.substring(0, content.length() - 1)
-                        + compileDynamicComponentsOutput(httpRequest.getResourceResolver())
+                        + dynamicOutput
                         + "}";
                     LOGGER.info("Content after Filter Chain: '{}'", content);
                     byte[] output = compress(content);
@@ -129,31 +152,16 @@ public class DynamicComponentFilter
         }
     }
 
-    private String compileDynamicComponentsOutput(ResourceResolver resourceResolver) {
+    private String compileDynamicComponentsOutput() {
         String answer = "";
-        for(Entry<String,PropertyHierarchy> entry: dynamicToProvideComponents.entrySet()) {
-            String component = "";
-            String dynamicPath = entry.getKey();
-            int index = dynamicPath.indexOf('/', 1);
-            if(index <= 0) {
-                LOGGER.warn("Dynamic Path is not valid: '{}'", dynamicPath);
-                continue;
+        for(Entry<String,DynamicComponentMapper> entry: dynamicToProvideComponents.entrySet()) {
+            DynamicComponentMapper dc = entry.getValue();
+            String component = dc.mapToJSon();
+            if(component.charAt(0) == '{' && component.charAt(component.length() - 1) == '}') {
+                answer += "," + component.substring(1, component.length() - 1);
+            } else {
+                LOGGER.warn("Unexpected JSon Content: '{}'", component);
             }
-            component = "\"" + dynamicPath.substring(index + 1) + "\": {"
-                + "\"path\":\"" + dynamicPath + "\"";
-            PropertyHierarchy propertyHierarchy = entry.getValue();
-            if(propertyHierarchy.containsKey("componentGroup")) {
-                component += ",\"group\":\"" + propertyHierarchy.get("componentGroup", "weird-group") + "\"";
-            }
-            if(propertyHierarchy.containsKey("jcr:title")) {
-                component += ",\"title\":\"" + propertyHierarchy.get("jcr:title", "weird-title") + "\"";
-            }
-            component += ",\"resourceType\":\"" + dynamicPath.substring(index + 1) + "\"";
-            if(propertyHierarchy.containsKey("cq:icon")) {
-                component += ",\"iconName\":\"" + propertyHierarchy.get("cq:icon", "weird-icon") + "\"";
-            }
-            component += "}";
-            answer += "," + component;
         }
         return answer;
     }
@@ -164,14 +172,16 @@ public class DynamicComponentFilter
     }
 
     @Override
-    public void addDynamicComponent(String dynamicComponentPath, Resource providedComponent) {
-        PropertyHierarchy propertyHierarchy = new PropertyHierarchy(providedComponent);
-        dynamicToProvideComponents.put(dynamicComponentPath, propertyHierarchy);
+    public void addDynamicComponent(String dynamicComponentPath, Resource source) {
+        targetToSourceMap.put(dynamicComponentPath, source);
+        dynamicToProvideComponents.put(dynamicComponentPath, new DynamicComponentMapper(dynamicComponentPath, source));
+        changes.set(true);
     }
 
     @Override
     public void removeDynamicComponent(String dynamicComponentPath) {
         dynamicToProvideComponents.remove(dynamicComponentPath);
+        changes.set(true);
     }
 
     private String decompress(byte[] content) throws IOException {
@@ -247,76 +257,6 @@ public class DynamicComponentFilter
         @Override
         public void setWriteListener(WriteListener writeListener) {
             // Ignore for now
-        }
-    }
-
-    private static class PropertyHierarchy {
-        private String providedComponentPath;
-        private Map<String, Object> hierarchicalProperties = new HashMap<>();
-
-        public PropertyHierarchy(Resource source) {
-            providedComponentPath = source.getPath();
-            String[] searchPaths = source.getResourceResolver().getSearchPath();
-            LOGGER.trace("Search Paths: '{}'", Arrays.asList(searchPaths));
-            traverse(source, searchPaths);
-        }
-
-        public String getProvidedComponentPath() {
-            return providedComponentPath;
-        }
-
-        public boolean containsKey(String propertyName) {
-            return hierarchicalProperties.containsKey(propertyName);
-        }
-
-        public String get(String propertyName) {
-            if(hierarchicalProperties.containsKey(propertyName)) {
-                Object temp = hierarchicalProperties.get(propertyName);
-                return temp == null ? "" : temp.toString();
-            } else {
-                return null;
-            }
-        }
-
-        public String get(String propertyName, String defaultValue) {
-            if(hierarchicalProperties.containsKey(propertyName)) {
-                Object temp = hierarchicalProperties.get(propertyName);
-                return temp == null ? "" : temp.toString();
-            } else {
-                return defaultValue;
-            }
-        }
-
-        private void traverse(Resource resource, String[] searchPaths) {
-            LOGGER.debug("Traverse resource: '{}'", resource);
-            ValueMap properties = resource.getValueMap();
-            if(properties != null) {
-                for(Entry<String,Object> entry: properties.entrySet()) {
-                    if(!hierarchicalProperties.containsKey(entry.getKey())) {
-                        hierarchicalProperties.put(entry.getKey(), entry.getValue());
-                    }
-                }
-                String superType = properties.get(SLING_RESOURCE_SUPER_TYPE_PROPERTY, String.class);
-                if(superType != null) {
-                    LOGGER.debug("Super Type found: '{}'", superType);
-                    Resource superResource = null;
-                    if(!superType.startsWith("/")) {
-                        for(String searchPath: searchPaths) {
-                            String path = searchPath + superType;
-                            superResource = resource.getResourceResolver().getResource(path);
-                            if(superResource != null) {
-                                LOGGER.debug("Found Super Type ('{}'): '{}'", path, superResource);
-                                break;
-                            }
-                        }
-                    } else {
-                        superResource = resource.getResourceResolver().getResource(superType);
-                    }
-                    if(superResource != null) {
-                        traverse(superResource, searchPaths);
-                    }
-                }
-            }
         }
     }
 }

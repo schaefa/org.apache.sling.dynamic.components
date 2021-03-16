@@ -2,9 +2,10 @@
 <jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0"
           jcr:primaryType="sling:OsgiConfig"
           dynamic.component.root.path="/conf/wknd/settings"
+          dynamic.target.path="/apps/wknd/components"
           dynamic.component.group="WKND.Content"
           dynamic.component.primary.type="cq:Component"
           dynamic.component.names="[button1=Button-1|core/wcm/components/button/v1/button,container1=Container-1|core/wcm/components/container/v1/container]"
           dynamic.component.additional.properties="[container1=cq:styleElements|{div;section;article;main;aside;header;footer}]"
-          dynamic.component.refs="[container1=cq:template|/apps/wknd/compnoents/tab/cq:template]"
+          dynamic.component.refs="[container1=cq:template|/apps/wknd/components/tabs/cq:template]"
 />
